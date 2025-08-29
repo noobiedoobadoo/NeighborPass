@@ -1,5 +1,6 @@
 # NeighborPass
 
+## Run with Docker
 Download the required files
 - [docker-compose.yml](https://raw.githubusercontent.com/noobiedoobadoo/NeighborPass/main/run-on-docker/docker-compose.yml)
 - [init-db.sql](https://raw.githubusercontent.com/noobiedoobadoo/NeighborPass/main/run-on-docker/init-db.sql)
