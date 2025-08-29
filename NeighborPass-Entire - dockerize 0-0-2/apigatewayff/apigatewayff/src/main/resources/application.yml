@@ -1,0 +1,29 @@
+server:
+  port: 8085
+
+spring:
+  application:
+    name: apigatewayff
+  cloud:
+    gateway:
+      routes:
+        # ➊ All /auth/** requests  →  localhost:8082
+        - id: auth-service
+          uri: http://${authentication-mic:localhost}:8082
+          predicates:
+            - Path=/auth/**
+
+        # ➋ All /admin/** requests →  localhost:8081
+        - id: admin-service
+          uri: http://${validation:localhost}:8081
+          predicates:
+            - Path=/admin/**
+
+        # ➌ All /entries/** requests → localhost:8080
+        - id: entry-service
+          uri: http://${gatelog:localhost}:8080
+          predicates:
+            - Path=/entries/**
+
+jwt:
+  secret: XMBAU9PWvaOUB/6SR740hxpJ3kyccaDDwHMoj3Klxcs=

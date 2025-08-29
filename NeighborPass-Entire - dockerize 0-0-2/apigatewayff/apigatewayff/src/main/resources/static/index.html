@@ -1,0 +1,451 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>JWT Authenticated Polling Monitor</title>
+  <style>
+    body {
+        font-family: Arial, sans-serif;
+        padding: 20px;
+        max-width: 900px;
+        margin: 0 auto;
+    }
+    .auth-section {
+        background-color: #e8f4fd;
+        padding: 15px;
+        border-radius: 5px;
+        margin-bottom: 20px;
+        border-left: 4px solid #007bff;
+    }
+    .controls {
+        margin: 20px 0;
+        padding: 15px;
+        background-color: #f5f5f5;
+        border-radius: 5px;
+    }
+    button {
+        margin: 5px;
+        padding: 10px 20px;
+        font-size: 16px;
+        border: none;
+        border-radius: 3px;
+        cursor: pointer;
+    }
+    .start-btn { background-color: #28a745; color: white; }
+    .stop-btn { background-color: #dc3545; color: white; }
+    .login-btn { background-color: #007bff; color: white; }
+    .start-btn:disabled, .stop-btn:disabled {
+        background-color: #6c757d;
+        cursor: not-allowed;
+    }
+    #status {
+        padding: 10px;
+        border-radius: 5px;
+        margin: 10px 0;
+        font-weight: bold;
+    }
+    .status-polling { background-color: #d4edda; color: #155724; }
+    .status-stopped { background-color: #f8d7da; color: #721c24; }
+    .status-error { background-color: #fff3cd; color: #856404; }
+    .status-authenticated { background-color: #d1ecf1; color: #0c5460; }
+    #log {
+        border: 1px solid #ddd;
+        padding: 15px;
+        height: 200px;
+        overflow-y: auto;
+        background-color: #f8f9fa;
+        white-space: pre-wrap;
+        font-family: 'Courier New', monospace;
+        font-size: 14px;
+    }
+    #currentData {
+        border: 1px solid #ddd;
+        padding: 15px;
+        background-color: #ffffff;
+        max-height: 300px;
+        overflow-y: auto;
+        margin-top: 10px;
+    }
+    .token-input {
+        width: 100%;
+        padding: 8px;
+        margin: 5px 0;
+        border: 1px solid #ddd;
+        border-radius: 3px;
+        font-family: monospace;
+        font-size: 12px;
+    }
+    .credential-row {
+        display: flex;
+        gap: 10px;
+        align-items: center;
+        margin: 10px 0;
+    }
+    .credential-row input {
+        flex: 1;
+        padding: 8px;
+        border: 1px solid #ddd;
+        border-radius: 3px;
+    }
+    .interval-control {
+        margin: 10px 0;
+    }
+    .interval-control input {
+        width: 60px;
+        padding: 5px;
+        margin: 0 5px;
+    }
+    .token-status {
+        font-size: 12px;
+        margin-top: 5px;
+        padding: 5px;
+        border-radius: 3px;
+    }
+    .token-valid { background-color: #d4edda; color: #155724; }
+    .token-invalid { background-color: #f8d7da; color: #721c24; }
+  </style>
+</head>
+<body>
+<h1>🔐 JWT Authenticated Polling Monitor</h1>
+<p>Monitors <code>http://localhost:8085/entries</code> with JWT authentication for changes.</p>
+
+<!-- Authentication Section -->
+<div class="auth-section">
+  <h3>🔑 Authentication</h3>
+
+  <!-- Option 1: Direct Token Input -->
+  <div>
+    <label><strong>Option 1: Paste JWT Token Directly</strong></label>
+    <textarea id="jwtToken" class="token-input" placeholder="Paste your JWT token here..." rows="3"></textarea>
+    <div id="tokenStatus" class="token-status"></div>
+    <button onclick="saveToken()" class="login-btn">Save Token</button>
+    <button onclick="clearToken()" class="stop-btn">Clear Token</button>
+  </div>
+
+  <hr style="margin: 20px 0;">
+
+  <!-- Option 2: Login to Get Token -->
+  <div>
+    <label><strong>Option 2: Login to Get Token</strong></label>
+    <div class="credential-row">
+      <input type="text" id="username" placeholder="Username" value="user123">
+      <input type="password" id="password" placeholder="Password" value="password">
+      <button onclick="loginAndGetToken()" class="login-btn">Login & Get Token</button>
+    </div>
+    <small>This will call POST /login to get a JWT token automatically</small>
+  </div>
+</div>
+
+<!-- Polling Controls -->
+<div class="controls">
+  <button id="startBtn" class="start-btn" disabled>Start Polling</button>
+  <button id="stopBtn" class="stop-btn" disabled>Stop Polling</button>
+
+  <div class="interval-control">
+    <label for="intervalInput">Poll Interval:</label>
+    <input type="number" id="intervalInput" value="5" min="1" max="60">
+    <span>seconds</span>
+  </div>
+
+  <div id="status" class="status-stopped">⏹️ Please authenticate first</div>
+</div>
+
+<h3>Activity Log:</h3>
+<div id="log">Ready to authenticate and start polling...</div>
+
+<h3>Current Data:</h3>
+<div id="currentData">No data fetched yet</div>
+
+<script>
+  const ENDPOINT = 'http://localhost:8085/entries';
+  const LOGIN_ENDPOINT = 'http://localhost:8085/login';  // Adjust if different
+
+  let pollingInterval = null;
+  let previousDataHash = null;
+  let pollCount = 0;
+  let currentToken = null;
+
+  // DOM elements
+  const startBtn = document.getElementById('startBtn');
+  const stopBtn = document.getElementById('stopBtn');
+  const statusDiv = document.getElementById('status');
+  const logDiv = document.getElementById('log');
+  const currentDataDiv = document.getElementById('currentData');
+  const intervalInput = document.getElementById('intervalInput');
+  const jwtTokenInput = document.getElementById('jwtToken');
+  const tokenStatusDiv = document.getElementById('tokenStatus');
+  const usernameInput = document.getElementById('username');
+  const passwordInput = document.getElementById('password');
+
+  // Load token from localStorage on page load
+  window.addEventListener('load', () => {
+      const savedToken = localStorage.getItem('jwtToken');
+      if (savedToken) {
+          jwtTokenInput.value = savedToken;
+          saveToken();
+      }
+  });
+
+  function simpleHash(str) {
+      let hash = 0;
+      for (let i = 0; i < str.length; i++) {
+          const char = str.charCodeAt(i);
+          hash = ((hash << 5) - hash) + char;
+          hash = hash & hash;
+      }
+      return hash;
+  }
+
+  function log(message, isError = false) {
+      const timestamp = new Date().toLocaleTimeString();
+      const logMessage = `[${timestamp}] ${message}\n`;
+      logDiv.textContent += logMessage;
+      logDiv.scrollTop = logDiv.scrollHeight;
+
+      if (isError) {
+          console.error(message);
+      } else {
+          console.log(message);
+      }
+  }
+
+  function updateStatus(message, className) {
+      statusDiv.textContent = message;
+      statusDiv.className = className;
+  }
+
+  function displayCurrentData(data) {
+      try {
+          const formatted = JSON.stringify(data, null, 2);
+          currentDataDiv.innerHTML = `<pre>${formatted}</pre>`;
+      } catch (e) {
+          currentDataDiv.textContent = String(data);
+      }
+  }
+
+  // Validate and decode JWT token (basic validation)
+  function validateToken(token) {
+      try {
+          const parts = token.split('.');
+          if (parts.length !== 3) return false;
+
+          // Decode payload (without verification - just for display)
+          const payload = JSON.parse(atob(parts[1]));
+          const now = Math.floor(Date.now() / 1000);
+
+          if (payload.exp && payload.exp < now) {
+              tokenStatusDiv.textContent = `❌ Token expired at ${new Date(payload.exp * 1000).toLocaleString()}`;
+              tokenStatusDiv.className = 'token-status token-invalid';
+              return false;
+          }
+
+          const expiryText = payload.exp ? ` (expires: ${new Date(payload.exp * 1000).toLocaleString()})` : '';
+          tokenStatusDiv.textContent = `✅ Token valid${expiryText}`;
+          tokenStatusDiv.className = 'token-status token-valid';
+          return true;
+      } catch (e) {
+          tokenStatusDiv.textContent = `❌ Invalid token format`;
+          tokenStatusDiv.className = 'token-status token-invalid';
+          return false;
+      }
+  }
+
+  function saveToken() {
+      const token = jwtTokenInput.value.trim();
+      if (!token) {
+          alert('Please enter a JWT token');
+          return;
+      }
+
+      if (validateToken(token)) {
+          currentToken = token;
+          localStorage.setItem('jwtToken', token);
+          updateStatus('🔐 Authenticated - Ready to poll', 'status-authenticated');
+          startBtn.disabled = false;
+          log('✅ JWT token saved and validated');
+      } else {
+          currentToken = null;
+          localStorage.removeItem('jwtToken');
+          updateStatus('❌ Invalid token', 'status-error');
+          startBtn.disabled = true;
+          log('❌ Invalid JWT token provided', true);
+      }
+  }
+
+  function clearToken() {
+      currentToken = null;
+      jwtTokenInput.value = '';
+      localStorage.removeItem('jwtToken');
+      tokenStatusDiv.textContent = '';
+      updateStatus('⏹️ Please authenticate first', 'status-stopped');
+      startBtn.disabled = true;
+      stopPolling();
+      log('🔐 Token cleared');
+  }
+
+  // Login and get token automatically
+  async function loginAndGetToken() {
+      const username = usernameInput.value.trim();
+      const password = passwordInput.value.trim();
+
+      if (!username || !password) {
+          alert('Please enter username and password');
+          return;
+      }
+
+      try {
+          log('🔐 Attempting login...');
+
+          const response = await fetch(LOGIN_ENDPOINT, {
+              method: 'POST',
+              headers: {
+                  'Content-Type': 'application/json',
+              },
+              body: JSON.stringify({ username, password })
+          });
+
+          if (!response.ok) {
+              throw new Error(`Login failed: ${response.status} ${response.statusText}`);
+          }
+
+          // Assuming your login endpoint returns the token directly or in an object
+          let token;
+          const contentType = response.headers.get('content-type');
+          if (contentType && contentType.includes('application/json')) {
+              const data = await response.json();
+              // Adjust based on your API response format
+              token = data.token || data.accessToken || data.access_token || data;
+          } else {
+              token = await response.text();
+          }
+
+          if (typeof token === 'object') {
+              token = token.toString();
+          }
+
+          jwtTokenInput.value = token;
+          saveToken();
+          log('✅ Login successful, token obtained');
+
+      } catch (error) {
+          log(`❌ Login failed: ${error.message}`, true);
+          updateStatus('❌ Login failed', 'status-error');
+      }
+  }
+
+  async function pollEndpoint() {
+      if (!currentToken) {
+          log('❌ No JWT token available', true);
+          stopPolling();
+          return;
+      }
+
+      pollCount++;
+      log(`Poll #${pollCount}: Fetching data with JWT...`);
+
+      try {
+          const response = await fetch(ENDPOINT, {
+              method: 'GET',
+              headers: {
+                  'Accept': 'application/json',
+                  'Content-Type': 'application/json',
+                  'Authorization': `Bearer ${currentToken}`  // JWT authentication
+              }
+          });
+
+          if (response.status === 401) {
+              throw new Error('Authentication failed - token may be expired');
+          }
+
+          if (!response.ok) {
+              throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+          }
+
+          const data = await response.json();
+          const dataString = JSON.stringify(data, null, 0);
+          const currentHash = simpleHash(dataString);
+
+          displayCurrentData(data);
+
+          if (previousDataHash === null) {
+              log(`Initial data received (${dataString.length} chars)`);
+              previousDataHash = currentHash;
+          } else if (previousDataHash !== currentHash) {
+              log(`🚨 CHANGE DETECTED! Data has been modified.`);
+              alert('🔔 Change detected in /entries response!\n\nThe data has been updated.');
+              previousDataHash = currentHash;
+          } else {
+              log(`No changes detected (Hash: ${currentHash})`);
+          }
+
+      } catch (error) {
+          log(`❌ Error fetching data: ${error.message}`, true);
+
+          if (error.message.includes('Authentication failed')) {
+              updateStatus(`🔐 Authentication failed - please login again`, 'status-error');
+              stopPolling();
+              clearToken();
+          } else {
+              updateStatus(`⚠️ Error: ${error.message}`, 'status-error');
+          }
+
+          currentDataDiv.innerHTML = `<div style="color: red;">Error: ${error.message}</div>`;
+      }
+  }
+
+  function startPolling() {
+      if (pollingInterval || !currentToken) return;
+
+      const interval = parseInt(intervalInput.value) * 1000;
+
+      if (interval < 1000 || interval > 60000) {
+          alert('Please enter a valid interval between 1 and 60 seconds.');
+          return;
+      }
+
+      pollCount = 0;
+      previousDataHash = null;
+      logDiv.textContent = '';
+
+      log(`🚀 Starting authenticated polling every ${interval/1000} seconds...`);
+      updateStatus('🔄 Polling Active (Authenticated)', 'status-polling');
+
+      pollEndpoint();
+      pollingInterval = setInterval(pollEndpoint, interval);
+
+      startBtn.disabled = true;
+      stopBtn.disabled = false;
+      intervalInput.disabled = true;
+  }
+
+  function stopPolling() {
+      if (pollingInterval) {
+          clearInterval(pollingInterval);
+          pollingInterval = null;
+
+          log(`⏹️ Polling stopped after ${pollCount} polls.`);
+          updateStatus('🔐 Authenticated - Ready to poll', 'status-authenticated');
+
+          startBtn.disabled = currentToken ? false : true;
+          stopBtn.disabled = true;
+          intervalInput.disabled = false;
+      }
+  }
+
+  // Event listeners
+  startBtn.addEventListener('click', startPolling);
+  stopBtn.addEventListener('click', stopPolling);
+
+  // Handle page unload
+  window.addEventListener('beforeunload', () => {
+      if (pollingInterval) {
+          clearInterval(pollingInterval);
+      }
+  });
+
+  // Initial log message
+  log('Ready to authenticate. Please provide a JWT token or login credentials.');
+</script>
+</body>
+</html>

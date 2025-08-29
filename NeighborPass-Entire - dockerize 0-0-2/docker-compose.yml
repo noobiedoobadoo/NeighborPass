@@ -1,0 +1,155 @@
+version: "3.8"
+
+############################################################
+# Shared Networks & Volumes
+############################################################
+networks:
+  app-network:   # every service joins this network
+volumes:
+  mysql-data:    # durable MySQL data
+  rabbitmq-data: # durable RabbitMQ data
+
+############################################################
+# Infrastructure Services
+############################################################
+services:
+  mysql-db:
+    image: mysql:latest
+    container_name: mysql-db
+    environment:
+      MYSQL_ROOT_PASSWORD: root        # CHANGE!
+#      MYSQL_DATABASE:  app_db                 # default schema
+#      MYSQL_USER:      appuser
+#      MYSQL_PASSWORD:  appuserpassword        # CHANGE!
+    ports:
+      - "3333:3306"           # optional - for Workbench etc.
+    volumes:
+      - mysql-data:/var/lib/mysql
+      - ./init-db.sql:/docker-entrypoint-initdb.d/init-db.sql  # Mounts the init script (runs on startup)
+    networks:
+      - app-network
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
+      interval: 10s
+      retries: 5
+
+  rabbitmq:
+    image: rabbitmq:3-management
+    container_name: rabbitmq
+    environment:
+      RABBITMQ_DEFAULT_USER: guest            # CHANGE for prod
+      RABBITMQ_DEFAULT_PASS: guest
+    ports:
+      - "5672:5672"   # AMQP
+      - "15672:15672" # management UI
+    volumes:
+      - rabbitmq-data:/var/lib/rabbitmq
+    networks:
+      - app-network
+    healthcheck:
+      test: ["CMD", "rabbitmqctl", "status"]
+      interval: 10s
+      retries: 5
+
+  redis:
+    image: redis:latest
+    container_name: redis
+    ports:
+      - "6379:6379"
+    networks:
+      - app-network
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      retries: 20
+
+  ############################################################
+  # Spring-Boot Microservices (built locally from Dockerfiles)
+  ############################################################
+  authentication-mic:
+    build: ./expense/expense          # path to Dockerfile
+    container_name: authentication-mic
+    environment:
+      MYSQL_HOST: mysql-db              # Internal service name
+      MYSQL_PORT: 3306                  # Internal port
+      MYSQL_DATABASE: security_directory # Your DB name
+      MYSQL_USERNAME: root           # From MySQL service config
+      MYSQL_PASSWORD: root   # CHANGE to secure value
+      RABBITMQ_HOST: rabbitmq
+      RABBITMQ_PORT: 5672
+      RABBITMQ_USERNAME: guest
+      RABBITMQ_PASSWORD: guest
+    ports:
+      - "8082:8082"
+    depends_on:
+      mysql-db:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - app-network
+
+  validation:
+    build: ./validation/validation
+    container_name: validation
+    environment:
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      RABBITMQ_HOST: rabbitmq
+      RABBITMQ_PORT: 5672
+      RABBITMQ_USERNAME: guest
+      RABBITMQ_PASSWORD: guest
+    ports:
+      - "8081:8081"
+    depends_on:
+      mysql-db:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - app-network
+
+  gatelog:
+    build: ./gatelog/gatelog
+    container_name: gatelog
+    environment:
+      MYSQL_HOST: mysql-db              # Internal service name
+      MYSQL_PORT: 3306                  # Internal port
+      MYSQL_DATABASE: gate_log_directory # Your DB name
+      MYSQL_USERNAME: root           # From MySQL service config
+      MYSQL_PASSWORD: root   # CHANGE to secure value
+      RABBITMQ_HOST: rabbitmq
+      RABBITMQ_PORT: 5672
+      RABBITMQ_USERNAME: guest
+      RABBITMQ_PASSWORD: guest
+      FEIGN_VALIDATION_URL: http://validation:8081
+    ports:
+      - "8080:8080"
+    depends_on:
+      mysql-db:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - app-network
+
+  apigatewayff:
+    build: ./apigatewayff/apigatewayff
+    container_name: apigatewayff
+    ports:
+      - "8085:8085"
+    depends_on:
+      mysql-db:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - app-network
