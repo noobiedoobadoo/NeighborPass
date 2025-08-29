@@ -28,7 +28,12 @@ public class OtpService {
     private Map<String ,String> otpMap = new HashMap<>();
 
     public OtpService() {
-        Twilio.init("ACb25f1d741f3d1a6c1b12b3738925bca8","2f2af582e2b9dc0f9661f0ff620e3d70");
+    }
+    
+    @PostConstruct
+    public void initTwilio() {
+        // This runs AFTER Spring injects the @Value properties
+        Twilio.init(accountSid, authToken);
     }
 
     public Message sendMessage(String contact) {
