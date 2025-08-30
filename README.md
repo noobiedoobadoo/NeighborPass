@@ -16,3 +16,10 @@ Stop the application with:
 ```bash
 docker compose down -v
 ```
+## Rough HLD
+<img width="852" height="642" alt="DiagramFIN" src="https://github.com/user-attachments/assets/a9f1108d-9588-4a68-91f3-c9f068612373" />
+
+## Class Mapping
+<img width="636" height="605" alt="ClassMappingFIN" src="https://github.com/user-attachments/assets/51c3ef89-09d0-466b-b686-47f97d2f7c27" />
+
+
