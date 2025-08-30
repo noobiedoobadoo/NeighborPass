@@ -10,7 +10,7 @@ Place them in a folder and run:
 docker-compose -f docker-compose.yml up
 ```
 
-Access the app at **localhost:8085** (or your configured port).
+Access the app at **localhost:8085**.
 
 Stop the application with:
 ```bash
